@@ -89,7 +89,7 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.arch }}-depot_tools-skia-${{ env.SKIA_BRANCH }}-${{ hashFiles('build-skia.py') }}
 
       - name: Build Skia (Release)
-        if: !inputs.test_mode
+        if: ${{ !inputs.test_mode }}
         shell: bash
         run: |
           ARCH_ARG=""
@@ -109,7 +109,7 @@ jobs:
           echo "name=${NAME}" >> $GITHUB_OUTPUT
 
       - name: Create dummy files for test mode
-        if: inputs.test_mode
+        if: ${{ inputs.test_mode }}
         shell: bash
         run: |
           mkdir -p build/include
