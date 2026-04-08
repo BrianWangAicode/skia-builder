@@ -575,7 +575,7 @@ class SkiaBuildScript:
     ]
 '''
         elif self.platform == "win":
-            gn_args += f"extra_cflags = [\"{'/MTd' if self.config == 'Debug' else '/MT'}\"]\n"
+            gn_args += f"extra_cflags = [\"{'/MTd' if self.config == 'Debug' else '/MD'}\"]\n"
             # Map architecture names to GN target_cpu values
             if arch == "Win32":
                 gn_args += "target_cpu = \"x86\"\n"
