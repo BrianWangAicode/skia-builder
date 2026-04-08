@@ -39,10 +39,6 @@ jobs:
             variant: gpu
             arch: x64
             config: Release
-          - os: ubuntu-latest
-            platform: linux
-            variant: gpu
-            arch: x64
     runs-on: ${{ matrix.os }}
     env:
       SKIA_BRANCH: ${{ inputs.skia_branch || 'chrome/m147' }}
