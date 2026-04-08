@@ -1,19 +1,18 @@
 name: Build Skia
 run-name: Build Skia
 on:
-  # push:
   workflow_dispatch:
     inputs:
       skia_branch:
         description: 'Skia branch to build (e.g., chrome/m144)'
         required: false
         type: string
-        default: 'chrome/m144'
+        default: 'chrome/m147'
       platforms:
         description: 'Platforms to build (comma-separated, or "all")'
         required: false
         type: string
-        default: 'all'
+        default: 'win,linux'
       test_mode:
         description: 'Run in test mode (skip Skia build)'
         required: false
@@ -23,7 +22,7 @@ on:
         description: 'Skip creating release (useful for testing single platforms)'
         required: false
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,232 +34,92 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            platform: mac
-            variant: gpu
-            arch: "universal"
-          - os: macos-latest
-            platform: mac
-            variant: gpu
-            arch: "arm64"
-          - os: macos-latest
-            platform: mac
-            variant: gpu
-            arch: "x86_64"
-          - os: macos-latest
-            platform: ios
-            variant: gpu
-            arch: "arm64"
-            target: "device"
-          - os: macos-latest
-            platform: ios
-            variant: gpu
-            arch: "arm64,x86_64"
-            target: "simulator"
-          - os: macos-latest
-            platform: visionos
-            variant: gpu
-            arch: "arm64"
-            target: "device"
-          - os: macos-latest
-            platform: visionos
-            variant: gpu
-            arch: "arm64"
-            target: "simulator"
           - os: windows-latest
             platform: win
             variant: gpu
             arch: x64
             config: Release
-          - os: windows-latest
-            platform: win
-            variant: gpu
-            arch: x64
-            config: Debug
           - os: ubuntu-latest
             platform: linux
             variant: gpu
             arch: x64
-          - os: ubuntu-latest
-            platform: wasm
-            variant: gpu
-            arch: "wasm32"
-            config: Release
-
-          # ARM64 platforms (later)
-          # - os: ubuntu-24.04-arm
-          #   platform: linux
-          #   variant: gpu
-          #   arch: arm64
-          # - os: windows-11-arm
-          #   platform: win
-          #   variant: gpu
-          #   arch: arm64
-          # CPU variants
-          # - os: macos-latest
-          #   platform: mac
-          #   variant: cpu
-          #   arch: ""
-          # - os: windows-latest
-          #   platform: win
-          #   variant: cpu
-          #   arch: x64
-          # - os: ubuntu-24.04
-          #   platform: linux
-          #   variant: cpu
-          #   arch: x64
-          # - os: ubuntu-latest
-          #   platform: wasm
-          #   variant: cpu
-          #   arch: ""
-          # - os: macos-latest
-          #   platform: ios
-          #   variant: cpu
-          #   arch: ""
     runs-on: ${{ matrix.os }}
     env:
-      SKIA_BRANCH: ${{ inputs.skia_branch || 'chrome/m144' }}
-    outputs:
-      skia_branch: ${{ env.SKIA_BRANCH }}
+      SKIA_BRANCH: ${{ inputs.skia_branch || 'chrome/m147' }}
     steps:
-      - name: Check if platform should build
-        id: check
-        shell: bash
-        run: |
-          PLATFORMS="${{ inputs.platforms || 'all' }}"
-          if [[ "$PLATFORMS" == "all" ]] || [[ "$PLATFORMS" == *"${{ matrix.platform }}"* ]]; then
-            echo "should_build=true" >> $GITHUB_OUTPUT
-          else
-            echo "should_build=false" >> $GITHUB_OUTPUT
-            echo "Skipping ${{ matrix.platform }} (not in platforms: $PLATFORMS)"
-          fi
-
       - name: Checkout repository
-        if: steps.check.outputs.should_build == 'true'
         uses: actions/checkout@v4
 
       - name: Free disk space (Linux)
-        if: steps.check.outputs.should_build == 'true' && runner.os == 'Linux'
+        if: runner.os == 'Linux'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
 
       - name: Install Linux build dependencies
-        if: steps.check.outputs.should_build == 'true' && matrix.platform == 'linux'
+        if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev libgl1-mesa-dev libglu1-mesa-dev libx11-xcb-dev libxcb1-dev libxcb-xkb-dev libwayland-dev ninja-build
 
       - name: Set up Ninja
-        if: steps.check.outputs.should_build == 'true' && matrix.os != 'ubuntu-24.04-arm'
         uses: seanmiddleditch/gha-setup-ninja@v5
 
       - name: Set up Python
-        if: steps.check.outputs.should_build == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
       - name: Set Git default branch
-        if: steps.check.outputs.should_build == 'true'
         run: git config --global init.defaultBranch main
 
-      - name: Install LLVM and Clang
-        if: steps.check.outputs.should_build == 'true' && runner.os != 'macOS' && matrix.os != 'windows-11-arm'
+      - name: Install LLVM and Clang (Windows)
+        if: runner.os == 'Windows'
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: "19.1.0"
           env: true
 
-      - name: Install LLVM and Clang (Windows ARM64)
-        if: steps.check.outputs.should_build == 'true' && matrix.os == 'windows-11-arm'
-        shell: pwsh
-        run: |
-          $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/LLVM-19.1.0-woa64.exe"
-          $installerPath = "$env:TEMP\llvm-installer.exe"
-          Write-Host "Downloading LLVM installer..."
-          Invoke-WebRequest -Uri $llvmUrl -OutFile $installerPath
-          Write-Host "Installing LLVM silently..."
-          Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait
-          Write-Host "LLVM installed successfully"
-          # Add LLVM to PATH
-          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Set cache key arch
-        if: steps.check.outputs.should_build == 'true'
-        id: cache-key
-        shell: bash
-        run: |
-          # Replace commas with dashes for cache key (commas not allowed)
-          ARCH_SAFE=$(echo "${{ matrix.arch || 'default' }}" | tr ',' '-')
-          echo "arch=${ARCH_SAFE}" >> $GITHUB_OUTPUT
-
       - name: Cache depot_tools and Skia source
-        if: steps.check.outputs.should_build == 'true'
         uses: actions/cache@v4
         with:
           path: |
             build/tmp/depot_tools
             build/src/skia
-          key: ${{ runner.os }}-${{ steps.cache-key.outputs.arch }}-depot_tools-skia-${{ env.SKIA_BRANCH }}-${{ hashFiles('build-skia.py') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-depot_tools-skia-${{ env.SKIA_BRANCH }}-${{ hashFiles('build-skia.py') }}
 
-      # - name: Build Skia (Debug)
-      #   if: ${{ !inputs.test_mode }}
-      #   run: |
-      #     python3 build-skia.py ${{ matrix.platform }} -config Debug --shallow -branch ${{ env.SKIA_BRANCH }}
-
-      - name: Build Skia (${{ matrix.config || 'Release' }})
-        if: steps.check.outputs.should_build == 'true' && !inputs.test_mode
+      - name: Build Skia (Release)
+        if: !inputs.test_mode
         shell: bash
         run: |
           ARCH_ARG=""
           if [ -n "${{ matrix.arch }}" ]; then
             ARCH_ARG="-archs ${{ matrix.arch }}"
           fi
-          TARGET_ARG=""
-          if [ -n "${{ matrix.target }}" ]; then
-            TARGET_ARG="-target ${{ matrix.target }}"
-          fi
           CONFIG="${{ matrix.config || 'Release' }}"
-          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config $CONFIG --shallow -branch ${{ env.SKIA_BRANCH }} $ARCH_ARG $TARGET_ARG
+          python3 build-skia.py ${{ matrix.platform }} -variant ${{ matrix.variant }} -config $CONFIG --shallow -branch ${{ env.SKIA_BRANCH }} $ARCH_ARG
 
       - name: Set archive name
-        if: steps.check.outputs.should_build == 'true'
         id: archive
         shell: bash
         run: |
           CONFIG="${{ matrix.config || 'Release' }}"
           CONFIG_LOWER=$(echo "$CONFIG" | tr '[:upper:]' '[:lower:]')
-          # Build name components
-          NAME="skia-build-${{ matrix.platform }}"
-          # Add target (device/simulator) if specified
-          if [ -n "${{ matrix.target }}" ]; then
-            NAME="${NAME}-${{ matrix.target }}"
-          fi
-          # Add architecture if specified
-          if [ -n "${{ matrix.arch }}" ]; then
-            # Replace commas with dashes for multi-arch builds
-            ARCH_SAFE=$(echo "${{ matrix.arch }}" | tr ',' '-')
-            NAME="${NAME}-${ARCH_SAFE}"
-          fi
-          NAME="${NAME}-${{ matrix.variant }}-${CONFIG_LOWER}"
+          NAME="skia-build-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}-${CONFIG_LOWER}"
           echo "name=${NAME}" >> $GITHUB_OUTPUT
 
       - name: Create dummy files for test mode
-        if: steps.check.outputs.should_build == 'true' && inputs.test_mode
+        if: inputs.test_mode
         shell: bash
         run: |
           mkdir -p build/include
           mkdir -p build/${{ matrix.platform }}-${{ matrix.variant }}
           echo "Test file" > build/include/test.h
           echo "Test lib" > build/${{ matrix.platform }}-${{ matrix.variant }}/test.lib
-          echo "GN args summary" > build/${{ matrix.platform }}-${{ matrix.variant }}/gn_args.txt
 
       - name: Package binaries
-        if: steps.check.outputs.should_build == 'true'
         shell: bash
         run: |
-          # Include share directory if it exists (contains icudtl.dat for ICU)
           SHARE_DIR=""
           if [ -d "build/share" ]; then
             SHARE_DIR="build/share"
@@ -272,155 +131,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        if: steps.check.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.archive.outputs.name }}
           path: ${{ steps.archive.outputs.name }}.zip
-
-      - name: Set SKIA_BRANCH output
-        if: steps.check.outputs.should_build == 'true'
-        shell: bash
-        run: echo "skia_branch=${{ env.SKIA_BRANCH }}" >> $GITHUB_OUTPUT
-
-  create-xcframework:
-    needs: build-skia
-    if: ${{ !inputs.skip_release && (inputs.platforms == 'all') }}
-    runs-on: macos-latest
-    steps:
-      - name: Download macOS artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: skia-build-mac-universal-gpu-release
-
-      - name: Download iOS device artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: skia-build-ios-device-arm64-gpu-release
-
-      - name: Download iOS simulator artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: skia-build-ios-simulator-arm64-x86_64-gpu-release
-
-      - name: Download visionOS device artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: skia-build-visionos-device-arm64-gpu-release
-
-      - name: Download visionOS simulator artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: skia-build-visionos-simulator-arm64-gpu-release
-
-      - name: Extract artifacts
-        run: |
-          for zip in *.zip; do
-            echo "Extracting $zip..."
-            unzip -o "$zip"
-          done
-          echo "Build directory structure:"
-          find build -name "libSkia.a" | head -20
-
-      - name: Strip arm64e from libraries
-        run: |
-          # Strip arm64e slices to get cleaner XCFramework paths
-          # (e.g., ios-arm64_x86_64-simulator instead of ios-arm64_arm64e_x86_64-simulator)
-          strip_arm64e() {
-            local lib="$1"
-            if lipo -info "$lib" 2>/dev/null | grep -q "arm64e"; then
-              echo "Stripping arm64e from $lib"
-              # Get all architectures except arm64e
-              archs=$(lipo -info "$lib" | sed 's/.*: //' | tr ' ' '\n' | grep -v arm64e | tr '\n' ' ')
-              lipo "$lib" -extract $archs -output "${lib}.tmp"
-              mv "${lib}.tmp" "$lib"
-            fi
-          }
-
-          for lib in $(find build -name "libSkia.a"); do
-            strip_arm64e "$lib"
-          done
-
-      - name: Create XCFramework
-        run: |
-          # Merge iOS simulator architectures into a single fat library
-          mkdir -p build/ios-gpu/lib/Release/simulator
-          lipo -create \
-            build/ios-gpu/lib/Release/simulator-arm64/libSkia.a \
-            build/ios-gpu/lib/Release/simulator-x86_64/libSkia.a \
-            -output build/ios-gpu/lib/Release/simulator/libSkia.a
-
-          # Create XCFramework with headers only on one library (they'll be shared via symlinks)
-          xcodebuild -create-xcframework \
-            -library build/mac-gpu/lib/Release/libSkia.a \
-            -headers build/include \
-            -library build/ios-gpu/lib/Release/device-arm64/libSkia.a \
-            -library build/ios-gpu/lib/Release/simulator/libSkia.a \
-            -library build/visionos-gpu/lib/Release/device-arm64/libSkia.a \
-            -library build/visionos-gpu/lib/Release/simulator-arm64/libSkia.a \
-            -output Skia.xcframework
-
-          # Move headers to root level and create symlinks to avoid duplication
-          # Find the directory that has Headers (the one we specified -headers for)
-          HEADERS_SRC=$(find Skia.xcframework -type d -name "Headers" | head -1)
-          HEADERS_PARENT=$(dirname "$HEADERS_SRC")
-
-          # Move headers to xcframework root
-          mv "$HEADERS_SRC" Skia.xcframework/Headers
-
-          # Create symlink in the original location
-          ln -s ../Headers "$HEADERS_SRC"
-
-          # Create symlinks for all other platform directories
-          for dir in Skia.xcframework/*/; do
-            dir=${dir%/}  # Remove trailing slash
-            if [ -d "$dir" ] && [ ! -L "$dir/Headers" ] && [ ! -d "$dir/Headers" ]; then
-              # Get relative path depth for symlink
-              ln -s ../Headers "$dir/Headers"
-            fi
-          done
-
-          echo "XCFramework structure:"
-          find Skia.xcframework -type l -o -type d | head -30
-
-      - name: Package XCFramework
-        run: zip -ry Skia.xcframework.zip Skia.xcframework  # -y preserves symlinks
-
-      - name: Upload XCFramework artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Skia.xcframework
-          path: Skia.xcframework.zip
-
-  create-release:
-    if: ${{ !inputs.skip_release && inputs.platforms == 'all' }}
-    needs: [build-skia, create-xcframework]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          body: |
-            https://raw.githubusercontent.com/google/skia/${{ needs.build-skia.outputs.skia_branch }}/RELEASE_NOTES.md
-          tag_name: ${{ needs.build-skia.outputs.skia_branch }}${{ inputs.test_mode && '-test' || '' }}
-          name: ${{ needs.build-skia.outputs.skia_branch }}${{ inputs.test_mode && ' (Test)' || '' }}
-          draft: false
-          prerelease: ${{ inputs.test_mode }}
-          files: |
-            ./skia-build-mac-universal-gpu-release/skia-build-mac-universal-gpu-release.zip
-            ./skia-build-mac-arm64-gpu-release/skia-build-mac-arm64-gpu-release.zip
-            ./skia-build-mac-x86_64-gpu-release/skia-build-mac-x86_64-gpu-release.zip
-            ./skia-build-ios-device-arm64-gpu-release/skia-build-ios-device-arm64-gpu-release.zip
-            ./skia-build-ios-simulator-arm64-x86_64-gpu-release/skia-build-ios-simulator-arm64-x86_64-gpu-release.zip
-            ./skia-build-visionos-device-arm64-gpu-release/skia-build-visionos-device-arm64-gpu-release.zip
-            ./skia-build-visionos-simulator-arm64-gpu-release/skia-build-visionos-simulator-arm64-gpu-release.zip
-            ./skia-build-win-x64-gpu-release/skia-build-win-x64-gpu-release.zip
-            ./skia-build-win-x64-gpu-debug/skia-build-win-x64-gpu-debug.zip
-            ./skia-build-linux-x64-gpu-release/skia-build-linux-x64-gpu-release.zip
-            ./skia-build-wasm-wasm32-gpu-release/skia-build-wasm-wasm32-gpu-release.zip
-            ./Skia.xcframework/Skia.xcframework.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
